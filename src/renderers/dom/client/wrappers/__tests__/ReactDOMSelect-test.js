@@ -1,5 +1,5 @@
 /**
- * Copyright 2013-2015, Facebook, Inc.
+ * Copyright 2013-present, Facebook, Inc.
  * All rights reserved.
  *
  * This source code is licensed under the BSD-style license found in the
@@ -11,8 +11,6 @@
 
 'use strict';
 
-
-var mocks = require('mocks');
 
 describe('ReactDOMSelect', function() {
   var React;
@@ -226,7 +224,14 @@ describe('ReactDOMSelect', function() {
 
     // Changing the `value` prop should change the selected options.
     objectToString.animal = 'monkey';
-    ReactDOM.render(el, container);
+
+    var el2 =
+      <select multiple={true} value={[objectToString]}>
+        <option value="monkey">A monkey!</option>
+        <option value="giraffe">A giraffe!</option>
+        <option value="gorilla">A gorilla!</option>
+      </select>;
+    ReactDOM.render(el2, container);
 
     expect(node.options[0].selected).toBe(true);  // monkey
     expect(node.options[1].selected).toBe(false);  // giraffe
@@ -343,14 +348,23 @@ describe('ReactDOMSelect', function() {
   });
 
   it('should support ReactLink', function() {
-    var link = new ReactLink('giraffe', mocks.getMockFunction());
+    var link = new ReactLink('giraffe', jest.fn());
     var stub =
       <select valueLink={link}>
         <option value="monkey">A monkey!</option>
         <option value="giraffe">A giraffe!</option>
         <option value="gorilla">A gorilla!</option>
       </select>;
+
+    spyOn(console, 'error');
+
     stub = ReactTestUtils.renderIntoDocument(stub);
+
+    expect(console.error.argsForCall.length).toBe(1);
+    expect(console.error.argsForCall[0][0]).toContain(
+      '`valueLink` prop on `select` is deprecated; set `value` and `onChange` instead.'
+    );
+
     var node = ReactDOM.findDOMNode(stub);
 
     expect(node.options[0].selected).toBe(false);  // monkey
@@ -446,5 +460,98 @@ describe('ReactDOMSelect', function() {
     expect(node.options[0].selected).toBe(false);  // monkey
     expect(node.options[1].selected).toBe(false);  // giraffe
     expect(node.options[2].selected).toBe(false);  // gorilla
+  });
+
+  it('should warn if value is null', function() {
+    spyOn(console, 'error');
+
+    ReactTestUtils.renderIntoDocument(<select value={null}><option value="test"/></select>);
+    expect(console.error.argsForCall[0][0]).toContain(
+      '`value` prop on `select` should not be null. ' +
+      'Consider using the empty string to clear the component or `undefined` ' +
+      'for uncontrolled components.'
+    );
+
+    ReactTestUtils.renderIntoDocument(<select value={null}><option value="test"/></select>);
+    expect(console.error.argsForCall.length).toBe(1);
+  });
+
+  it('should refresh state on change', function() {
+    var stub =
+      <select value="giraffe" onChange={noop}>
+        <option value="monkey">A monkey!</option>
+        <option value="giraffe">A giraffe!</option>
+        <option value="gorilla">A gorilla!</option>
+      </select>;
+    stub = ReactTestUtils.renderIntoDocument(stub);
+    var node = ReactDOM.findDOMNode(stub);
+
+    ReactTestUtils.Simulate.change(node);
+
+    expect(node.value).toBe('giraffe');
+  });
+
+  it('should warn if value and defaultValue props are specified', function() {
+    spyOn(console, 'error');
+    ReactTestUtils.renderIntoDocument(
+      <select value="giraffe" defaultValue="giraffe" readOnly={true}>
+        <option value="monkey">A monkey!</option>
+        <option value="giraffe">A giraffe!</option>
+        <option value="gorilla">A gorilla!</option>
+      </select>
+    );
+    expect(console.error.argsForCall[0][0]).toContain(
+      'Select elements must be either controlled or uncontrolled ' +
+      '(specify either the value prop, or the defaultValue prop, but not ' +
+      'both). Decide between using a controlled or uncontrolled select ' +
+      'element and remove one of these props. More info: ' +
+      'https://fb.me/react-controlled-components'
+    );
+
+    ReactTestUtils.renderIntoDocument(
+      <select value="giraffe" defaultValue="giraffe" readOnly={true}>
+        <option value="monkey">A monkey!</option>
+        <option value="giraffe">A giraffe!</option>
+        <option value="gorilla">A gorilla!</option>
+      </select>
+    );
+    expect(console.error.argsForCall.length).toBe(1);
+  });
+
+  it('should be able to safely remove select onChange', function() {
+    function changeView() {
+      ReactDOM.unmountComponentAtNode(container);
+    }
+
+    var container = document.createElement('div');
+    var stub =
+      <select value="giraffe" onChange={changeView}>
+        <option value="monkey">A monkey!</option>
+        <option value="giraffe">A giraffe!</option>
+        <option value="gorilla">A gorilla!</option>
+      </select>;
+    stub = ReactDOM.render(stub, container);
+    var node = ReactDOM.findDOMNode(stub);
+
+    expect(() => ReactTestUtils.Simulate.change(node)).not.toThrow(
+      "Cannot set property 'pendingUpdate' of null"
+    );
+  });
+
+  it('should select grandchild options nested inside an optgroup', function() {
+    var stub =
+      <select value="b" onChange={noop}>
+        <optgroup label="group">
+          <option value="a">a</option>
+          <option value="b">b</option>
+          <option value="c">c</option>
+        </optgroup>
+      </select>;
+    var container = document.createElement('div');
+    var node = ReactDOM.render(stub, container);
+
+    expect(node.options[0].selected).toBe(false);  // a
+    expect(node.options[1].selected).toBe(true);   // b
+    expect(node.options[2].selected).toBe(false);  // c
   });
 });

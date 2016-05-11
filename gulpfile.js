@@ -1,5 +1,5 @@
 /**
- * Copyright 2013-2015, Facebook, Inc.
+ * Copyright 2013-present, Facebook, Inc.
  * All rights reserved.
  *
  * This source code is licensed under the BSD-style license found in the
@@ -14,35 +14,51 @@ var babel = require('gulp-babel');
 var flatten = require('gulp-flatten');
 var del = require('del');
 
-var babelPluginDEV = require('fbjs/scripts/babel/dev-expression');
-var babelPluginModules = require('fbjs/scripts/babel/rewrite-modules');
+var babelPluginModules = require('fbjs-scripts/babel-6/rewrite-modules');
 
 var paths = {
   react: {
     src: [
       'src/**/*.js',
+      '!src/**/__benchmarks__/**/*.js',
       '!src/**/__tests__/**/*.js',
       '!src/**/__mocks__/**/*.js',
+      '!src/shared/vendor/**/*.js',
     ],
     lib: 'build/modules',
   },
 };
 
+var fbjsModuleMap = require('fbjs/module-map');
+var moduleMap = {};
+for (var key in fbjsModuleMap) {
+  moduleMap[key] = fbjsModuleMap[key];
+}
+var whiteListNames = [
+  'deepDiffer',
+  'deepFreezeAndThrowOnMutationInDev',
+  'flattenStyle',
+  'InitializeJavaScriptAppEngine',
+  'RCTEventEmitter',
+  'TextInputState',
+  'UIManager',
+  'View',
+];
+
+whiteListNames.forEach(function(name) {
+  moduleMap[name] = name;
+});
+
+moduleMap['object-assign'] = 'object-assign';
+
 var babelOpts = {
-  nonStandard: true,
-  blacklist: [
-    'spec.functionName',
+  plugins: [
+    [babelPluginModules, { map: moduleMap }],
   ],
-  optional: [
-    'es7.trailingFunctionCommas',
-  ],
-  plugins: [babelPluginDEV, babelPluginModules],
-  ignore: ['third_party'],
-  _moduleMap: require('fbjs/module-map'),
 };
 
-gulp.task('react:clean', function(cb) {
-  del([paths.react.lib], cb);
+gulp.task('react:clean', function() {
+  return del([paths.react.lib]);
 });
 
 gulp.task('react:modules', function() {

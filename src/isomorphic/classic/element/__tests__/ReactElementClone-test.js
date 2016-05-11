@@ -1,5 +1,5 @@
 /**
- * Copyright 2013-2015, Facebook, Inc.
+ * Copyright 2013-present, Facebook, Inc.
  * All rights reserved.
  *
  * This source code is licensed under the BSD-style license found in the
@@ -10,8 +10,6 @@
  */
 
 'use strict';
-
-require('mock-modules');
 
 var React;
 var ReactDOM;
@@ -66,6 +64,18 @@ describe('ReactElementClone', function() {
     });
     var component = ReactTestUtils.renderIntoDocument(<Grandparent />);
     expect(ReactDOM.findDOMNode(component).childNodes[0].className).toBe('xyz');
+  });
+
+  it('should warn if the config object inherits from any type other than Object', function() {
+    spyOn(console, 'error');
+    React.cloneElement('div', {foo: 1});
+    expect(console.error).not.toHaveBeenCalled();
+    React.cloneElement('div', Object.create({foo: 1}));
+    expect(console.error.argsForCall.length).toBe(1);
+    expect(console.error.argsForCall[0][0]).toContain(
+      'React.cloneElement(...): Expected props argument to be a plain object. ' +
+      'Properties defined in its prototype chain will be ignored.'
+    );
   });
 
   it('should keep the original ref if it is not overridden', function() {
@@ -258,7 +268,7 @@ describe('ReactElementClone', function() {
     });
     ReactTestUtils.renderIntoDocument(React.createElement(GrandParent));
     expect(console.error.argsForCall.length).toBe(1);
-    expect(console.error.calls[0].args[0]).toBe(
+    expect(console.error.argsForCall[0][0]).toBe(
       'Warning: Failed propType: ' +
       'Invalid prop `color` of type `number` supplied to `Component`, ' +
       'expected `string`. Check the render method of `Parent`.'

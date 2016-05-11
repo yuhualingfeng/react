@@ -1,5 +1,5 @@
 /**
- * Copyright 2013-2015, Facebook, Inc.
+ * Copyright 2013-present, Facebook, Inc.
  * All rights reserved.
  *
  * This source code is licensed under the BSD-style license found in the
@@ -13,9 +13,9 @@
 
 var EventConstants = require('EventConstants');
 var EventListener = require('EventListener');
-var EventPluginUtils = require('EventPluginUtils');
 var EventPropagators = require('EventPropagators');
-var ReactMount = require('ReactMount');
+var ReactDOMComponentTree = require('ReactDOMComponentTree');
+var SyntheticAnimationEvent = require('SyntheticAnimationEvent');
 var SyntheticClipboardEvent = require('SyntheticClipboardEvent');
 var SyntheticEvent = require('SyntheticEvent');
 var SyntheticFocusEvent = require('SyntheticFocusEvent');
@@ -23,6 +23,7 @@ var SyntheticKeyboardEvent = require('SyntheticKeyboardEvent');
 var SyntheticMouseEvent = require('SyntheticMouseEvent');
 var SyntheticDragEvent = require('SyntheticDragEvent');
 var SyntheticTouchEvent = require('SyntheticTouchEvent');
+var SyntheticTransitionEvent = require('SyntheticTransitionEvent');
 var SyntheticUIEvent = require('SyntheticUIEvent');
 var SyntheticWheelEvent = require('SyntheticWheelEvent');
 
@@ -30,7 +31,6 @@ var emptyFunction = require('emptyFunction');
 var getEventCharCode = require('getEventCharCode');
 var invariant = require('invariant');
 var keyOf = require('keyOf');
-var warning = require('warning');
 
 var topLevelTypes = EventConstants.topLevelTypes;
 
@@ -39,6 +39,24 @@ var eventTypes = {
     phasedRegistrationNames: {
       bubbled: keyOf({onAbort: true}),
       captured: keyOf({onAbortCapture: true}),
+    },
+  },
+  animationEnd: {
+    phasedRegistrationNames: {
+      bubbled: keyOf({onAnimationEnd: true}),
+      captured: keyOf({onAnimationEndCapture: true}),
+    },
+  },
+  animationIteration: {
+    phasedRegistrationNames: {
+      bubbled: keyOf({onAnimationIteration: true}),
+      captured: keyOf({onAnimationIterationCapture: true}),
+    },
+  },
+  animationStart: {
+    phasedRegistrationNames: {
+      bubbled: keyOf({onAnimationStart: true}),
+      captured: keyOf({onAnimationStartCapture: true}),
     },
   },
   blur: {
@@ -177,6 +195,12 @@ var eventTypes = {
     phasedRegistrationNames: {
       bubbled: keyOf({onInput: true}),
       captured: keyOf({onInputCapture: true}),
+    },
+  },
+  invalid: {
+    phasedRegistrationNames: {
+      bubbled: keyOf({onInvalid: true}),
+      captured: keyOf({onInvalidCapture: true}),
     },
   },
   keyDown: {
@@ -361,6 +385,12 @@ var eventTypes = {
       captured: keyOf({onTouchStartCapture: true}),
     },
   },
+  transitionEnd: {
+    phasedRegistrationNames: {
+      bubbled: keyOf({onTransitionEnd: true}),
+      captured: keyOf({onTransitionEndCapture: true}),
+    },
+  },
   volumeChange: {
     phasedRegistrationNames: {
       bubbled: keyOf({onVolumeChange: true}),
@@ -383,6 +413,9 @@ var eventTypes = {
 
 var topLevelEventsToDispatchConfig = {
   topAbort:           eventTypes.abort,
+  topAnimationEnd:    eventTypes.animationEnd,
+  topAnimationIteration: eventTypes.animationIteration,
+  topAnimationStart:  eventTypes.animationStart,
   topBlur:            eventTypes.blur,
   topCanPlay:         eventTypes.canPlay,
   topCanPlayThrough:  eventTypes.canPlayThrough,
@@ -406,6 +439,7 @@ var topLevelEventsToDispatchConfig = {
   topError:           eventTypes.error,
   topFocus:           eventTypes.focus,
   topInput:           eventTypes.input,
+  topInvalid:         eventTypes.invalid,
   topKeyDown:         eventTypes.keyDown,
   topKeyPress:        eventTypes.keyPress,
   topKeyUp:           eventTypes.keyUp,
@@ -418,16 +452,16 @@ var topLevelEventsToDispatchConfig = {
   topMouseOut:        eventTypes.mouseOut,
   topMouseOver:       eventTypes.mouseOver,
   topMouseUp:         eventTypes.mouseUp,
-  topPause:           eventTypes.pause,
   topPaste:           eventTypes.paste,
+  topPause:           eventTypes.pause,
   topPlay:            eventTypes.play,
   topPlaying:         eventTypes.playing,
   topProgress:        eventTypes.progress,
   topRateChange:      eventTypes.rateChange,
   topReset:           eventTypes.reset,
+  topScroll:          eventTypes.scroll,
   topSeeked:          eventTypes.seeked,
   topSeeking:         eventTypes.seeking,
-  topScroll:          eventTypes.scroll,
   topStalled:         eventTypes.stalled,
   topSubmit:          eventTypes.submit,
   topSuspend:         eventTypes.suspend,
@@ -436,6 +470,7 @@ var topLevelEventsToDispatchConfig = {
   topTouchEnd:        eventTypes.touchEnd,
   topTouchMove:       eventTypes.touchMove,
   topTouchStart:      eventTypes.touchStart,
+  topTransitionEnd:   eventTypes.transitionEnd,
   topVolumeChange:    eventTypes.volumeChange,
   topWaiting:         eventTypes.waiting,
   topWheel:           eventTypes.wheel,
@@ -452,44 +487,12 @@ var SimpleEventPlugin = {
 
   eventTypes: eventTypes,
 
-  /**
-   * Same as the default implementation, except cancels the event when return
-   * value is false. This behavior will be disabled in a future release.
-   *
-   * @param {object} event Event to be dispatched.
-   * @param {function} listener Application-level callback.
-   * @param {string} domID DOM ID to pass to the callback.
-   */
-  executeDispatch: function(event, listener, domID) {
-    var returnValue = EventPluginUtils.executeDispatch(event, listener, domID);
-
-    warning(
-      typeof returnValue !== 'boolean',
-      'Returning `false` from an event handler is deprecated and will be ' +
-      'ignored in a future release. Instead, manually call ' +
-      'e.stopPropagation() or e.preventDefault(), as appropriate.'
-    );
-
-    if (returnValue === false) {
-      event.stopPropagation();
-      event.preventDefault();
-    }
-  },
-
-  /**
-   * @param {string} topLevelType Record from `EventConstants`.
-   * @param {DOMEventTarget} topLevelTarget The listening component root node.
-   * @param {string} topLevelTargetID ID of `topLevelTarget`.
-   * @param {object} nativeEvent Native browser event.
-   * @return {*} An accumulation of synthetic events.
-   * @see {EventPluginHub.extractEvents}
-   */
   extractEvents: function(
-      topLevelType,
-      topLevelTarget,
-      topLevelTargetID,
-      nativeEvent,
-      nativeEventTarget) {
+    topLevelType,
+    targetInst,
+    nativeEvent,
+    nativeEventTarget
+  ) {
     var dispatchConfig = topLevelEventsToDispatchConfig[topLevelType];
     if (!dispatchConfig) {
       return null;
@@ -505,6 +508,7 @@ var SimpleEventPlugin = {
       case topLevelTypes.topEnded:
       case topLevelTypes.topError:
       case topLevelTypes.topInput:
+      case topLevelTypes.topInvalid:
       case topLevelTypes.topLoad:
       case topLevelTypes.topLoadedData:
       case topLevelTypes.topLoadedMetadata:
@@ -528,7 +532,7 @@ var SimpleEventPlugin = {
         EventConstructor = SyntheticEvent;
         break;
       case topLevelTypes.topKeyPress:
-        // FireFox creates a keypress event for function keys too. This removes
+        // Firefox creates a keypress event for function keys too. This removes
         // the unwanted keypress events. Enter is however both printable and
         // non-printable. One would expect Tab to be as well (but it isn't).
         if (getEventCharCode(nativeEvent) === 0) {
@@ -575,6 +579,14 @@ var SimpleEventPlugin = {
       case topLevelTypes.topTouchStart:
         EventConstructor = SyntheticTouchEvent;
         break;
+      case topLevelTypes.topAnimationEnd:
+      case topLevelTypes.topAnimationIteration:
+      case topLevelTypes.topAnimationStart:
+        EventConstructor = SyntheticAnimationEvent;
+        break;
+      case topLevelTypes.topTransitionEnd:
+        EventConstructor = SyntheticTransitionEvent;
+        break;
       case topLevelTypes.topScroll:
         EventConstructor = SyntheticUIEvent;
         break;
@@ -594,7 +606,7 @@ var SimpleEventPlugin = {
     );
     var event = EventConstructor.getPooled(
       dispatchConfig,
-      topLevelTargetID,
+      targetInst,
       nativeEvent,
       nativeEventTarget
     );
@@ -602,13 +614,14 @@ var SimpleEventPlugin = {
     return event;
   },
 
-  didPutListener: function(id, registrationName, listener) {
+  didPutListener: function(inst, registrationName, listener) {
     // Mobile Safari does not fire properly bubble click events on
     // non-interactive elements, which means delegated click listeners do not
     // fire. The workaround for this bug involves attaching an empty click
     // listener on the target node.
     if (registrationName === ON_CLICK_KEY) {
-      var node = ReactMount.getNode(id);
+      var id = inst._rootNodeID;
+      var node = ReactDOMComponentTree.getNodeFromInstance(inst);
       if (!onClickListeners[id]) {
         onClickListeners[id] = EventListener.listen(
           node,
@@ -619,8 +632,9 @@ var SimpleEventPlugin = {
     }
   },
 
-  willDeleteListener: function(id, registrationName) {
+  willDeleteListener: function(inst, registrationName) {
     if (registrationName === ON_CLICK_KEY) {
+      var id = inst._rootNodeID;
       onClickListeners[id].remove();
       delete onClickListeners[id];
     }
